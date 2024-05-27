@@ -2,6 +2,8 @@ package data
 
 import "bitcask.go/fio"
 
+const DataFileSuffix = ".data"
+
 // DataFile 数据文件的结构体
 type DataFile struct {
 	FileID    uint32        //文件id
@@ -15,8 +17,8 @@ func OpenDataFile(dirPath string, fileid uint32) (*DataFile, error) {
 }
 
 // ReadLogRecord 根据偏移量读取相应的数据文件
-func (df *DataFile) ReadLogRecord(offser int64) (*LogRecord, error) {
-	return nil, nil //待会儿来实现
+func (df *DataFile) ReadLogRecord(offser int64) (*LogRecord, int64, error) {
+	return nil, 0, nil //待会儿来实现
 }
 
 // Sync 持久化操作

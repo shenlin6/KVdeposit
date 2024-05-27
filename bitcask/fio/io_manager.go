@@ -10,8 +10,8 @@ type FileID struct {
 	fd *os.File //系统文件描述码
 }
 
-// NewFileIDManager 初始化标准文件 ID
-func NewFileIDManager(filename string) (*FileID, error) {
+// NewFileIOManager 初始化标准文件 ID
+func NewFileIOManager(filename string) (*FileID, error) {
 	fid, err := os.OpenFile(
 		filename,
 		os.O_CREATE|os.O_APPEND, //没有则创建，只允许追加写入

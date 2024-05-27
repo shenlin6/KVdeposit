@@ -1,6 +1,11 @@
 package bitcask
 
 import (
+	"io"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 
 	"bitcask.go/data"
@@ -14,6 +19,44 @@ type DB struct {
 	activeFile *data.DataFile            // 目前的活跃文件(只有一个)，可以写入
 	oldFiles   map[uint32]*data.DataFile //旧的数据文件（一个或者多个）
 	index      index.Indexer             //内存索引
+	fileIDs    []int                     //有序递增的fileid，只能用于加载索引使用
+}
+
+// Open 打开 bitcask 储存引擎的实例
+func Open(options Options) (*DB, error) {
+	//对用户传入的配置项进行校验，避免破坏数据库内部操作
+	if err := checkOptions(options); err != nil {
+		return nil, err
+	}
+
+	// 对用户传递过来的目录进行校验，如果目录不为空，但这个目录不存在（第一次使用），需要创建这个目录
+	if _, err := os.Stat(options.DirPath); os.IsExist(err) {
+		if err := os.MkdirAll(options.DirPath, os.ModePerm); err != nil { //递归创建目录 os.ModePerm 给予目录读写执行的权限
+			return nil, err
+		}
+	}
+
+	//初始化 DB 实例的结构体，对其数据结构进行初始化
+	db := &DB{
+		// 注意使用了引用的数据结构都需要 new 或者 make 一个空间
+		option:   options,
+		rwmu:     new(sync.RWMutex),
+		oldFiles: make(map[uint32]*data.DataFile),
+		index:    index.NewIndexer(options.IndexType), //用户自己选择索引类型（Btree ART）
+	}
+
+	// 加载对应的数据文件
+	if err := db.loadDataFiles(); err != nil {
+		return nil, err
+	}
+
+	// 从数据文件中加载索引的方法
+	if err := db.loadIndexFromFiles(); err != nil {
+		return nil, err
+	}
+
+	//加载完成之后，返回DB的结构体实例
+	return db, nil
 }
 
 // Put DB数据写入的方法：写入 Key(非空) 和 Value
@@ -76,7 +119,7 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 		return nil, ErrDataFileNotFound
 	}
 	//如果不为空，说明找到了对应的数据文件，根据偏移量读取对应数据
-	logRecord, err := dataFile.ReadLogRecord(dataFile.Offsetnow)
+	logRecord, _, err := dataFile.ReadLogRecord(dataFile.Offsetnow)
 	if err != nil {
 		return nil, err
 	}
@@ -119,6 +162,7 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 			return nil, err
 		}
 	}
+
 	//开始实现数据文件写入操作：
 	//记录当前的offset
 	writeOff := db.activeFile.Offsetnow
@@ -137,7 +181,7 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 	//构造内存索引信息，返回去上一层
 	pos := &data.LogRecordPos{
 		Fid:    db.activeFile.FileID,
-		Offset: uint64(writeOff),
+		Offset: writeOff,
 	}
 	return pos, nil
 }
@@ -156,6 +200,119 @@ func (db *DB) setActiveFile() error {
 		return err
 	}
 	db.activeFile = datafile //修改目前的活跃文件
+
+	return nil
+}
+
+// loadDataFiles 加载对应的数据文件
+func (db *DB) loadDataFiles() error {
+	//首先根据配置项读取存储的对应目录，拿到目录列表
+	dirEntry, err := os.ReadDir(db.option.DirPath)
+	if err != nil {
+		return err
+	}
+
+	//参考网上资料:约定以 .data 为后缀的文件为目标数据文件
+	var fileIDs []int
+	for _, entry := range dirEntry { //entry: 其中的一个子目录
+		if strings.HasSuffix(entry.Name(), data.DataFileSuffix) {
+			//如果是以 .data 结尾的文件：对这个文件进行名称分割,拿到前半部分(0001.data -> 0001)
+			splitName := strings.Split(entry.Name(), ".")
+			//以 ASCII 码为中介将 string 解析为 int 类型,拿到对应的fileid
+			fileID, err := strconv.Atoi(splitName[0])
+			//解析错误说明数据目录可能被损坏了
+			if err != nil {
+				return ErrDataDirectoryCorrupted
+			}
+			//将对应的fileID分别存放到fileIDs中
+			fileIDs = append(fileIDs, fileID)
+		}
+	}
+	// 对 fileID进行排序，需要从小到大分别分别加载数据文件，保证递增性
+	sort.Ints(fileIDs)
+	db.fileIDs = fileIDs //赋值，使其实例化的同时满足有序
+
+	//遍历每一个文件的ID,打开每一个对应的数据文件
+	for i, fid := range fileIDs {
+		datafile, err := data.OpenDataFile(db.option.DirPath, uint32(fid))
+		if err != nil {
+			return err
+		}
+		//如果遍历到最新的文件(活跃文件)则停止，否则就将该文件加入旧文件队伍中（保证活跃文件的唯一性）
+		//一个简单的算法：(注意 ! ! ! 从0开始索引)
+		if i == len(fileIDs)-1 {
+			db.activeFile = datafile
+		} else { //加入旧文件
+			db.oldFiles[uint32(fid)] = datafile
+		}
+	}
+
+	return nil
+}
+
+// loadIndexFromFiles 从数据文件中加载索引的方法
+func (db *DB) loadIndexFromFiles() error {
+	// 遍历文件中的所有记录，并加载到内存的索引中去
+	// 注意： map无序，想要从小到大通过fileID来添加内存索引，需要复用loadDataFiles中有序的fileIDs
+
+	//为空直接返回
+	if len(db.fileIDs) == 0 {
+		return nil
+	}
+
+	// 遍历所有的文件ID,取出所有文件中的内容
+	for i, fid := range db.fileIDs {
+		//类型转换，方便处理活跃文件和旧文件
+		var dataFile *data.DataFile
+		fileID := uint32(fid)
+		if fileID == db.activeFile.FileID {
+			dataFile = db.activeFile
+		} else { //旧文件
+			dataFile = db.oldFiles[fileID]
+		}
+		// 拿到一个文件后，从 0 开始循环处理这个文件中的所有内容
+		var offset int64 = 0
+		for {
+			logRecord, size, err := dataFile.ReadLogRecord(offset)
+			if err != nil {
+				//如果文件读完了，需要跳出循环
+				if err == io.EOF {
+					break
+				} else {
+					//如果是其他错误直接返回
+					return err
+				}
+			}
+			//构造内存索引并保存
+			logRecordPos := data.LogRecordPos{Fid: fileID, Offset: offset}
+			//这个索引可能被删除，查看是否有墓碑值,有的话直接删除
+			if logRecord.Type == data.LogRecordDeleted {
+				db.index.Delete(logRecord.Key)
+			} else {
+				//正常的话就保存
+				db.index.Put(logRecord.Key, &logRecordPos)
+			}
+			//对偏移量 offset 进行递增
+			offset += size
+		}
+		//读取到活跃文件跳出循环之后:进行当前offset的更新，以便于下一次从这里开始写入数据
+		if i == len(db.fileIDs)-1 {
+			db.activeFile.Offsetnow = offset
+		}
+	}
+	return nil
+}
+
+// checkOptions 对用户传入的配置项进行校验
+func checkOptions(options Options) error {
+	// 如果用户传入的目录为空，直接返回
+	if options.DirPath == "" {
+		return ErrDirPathNil
+	}
+	//大小为0，同样返回
+	if options.DataFileSize == 0 {
+		return ErrDataFileSizeNil
+	}
 
 	return nil
 }
