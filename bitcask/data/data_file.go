@@ -70,7 +70,7 @@ func (df *DataFile) ReadLogRecord(offset int64) (*LogRecord, int64, error) {
 		return nil, 0, io.EOF
 	}
 
-	//如果读取的 校验值 key_size 和 value_size 都为 0 ,也表示读取到了未见末尾，直接返回
+	//如果读取的 校验值 key_size 和 value_size 都为 0 ,也表示读取到了文件末尾，直接返回
 	if header.crc == 0 && header.keySize == 0 && header.valueSize == 0 {
 		return nil, 0, io.EOF
 	}
@@ -99,10 +99,11 @@ func (df *DataFile) ReadLogRecord(offset int64) (*LogRecord, int64, error) {
 		logRecord.Value = kvBuf[keySize:] // keysize长度之后的值
 	}
 	// 校验 crc 的值是否正确,判断和header中的 crc的值是否完全相等，不相等则说明数据文件可能有乱码（被破坏）
-	//注意: ! ! ! 不能把整个 headerbuf 切片全传进去,因为我们设置的时最大头部信息字节数,
+	//注意: ! ! ! 不能把整个 headerbuf 切片全传进去,因为我们设置了最大头部信息字节数,
 	//但实际的长度绝大多数时间没这么长,除非刚好巧合 = maxLogRecordHeaderSize，我们需要截取不需要的长度
 
 	crc := getLogRecordCrc(logRecord, headerbuf[crc32.Size:headerSize]) //取从 crc32.Size 到 headerSize-1 的部分
+	// 将LogRecord中的CRC与数据文件中的CRC进行比较，检验数据的有效性（是否被损坏）
 	if crc != header.crc {
 		return nil, 0, ErrInvalidCRC
 	}
