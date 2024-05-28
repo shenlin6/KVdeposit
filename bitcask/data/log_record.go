@@ -92,24 +92,23 @@ func decodeLogRecordHeader(buf []byte) (*logRecordHeader, int64) {
 
 	// 从前往后依次拿出来所有的数据
 	header := &logRecordHeader{
-		crc:        binary.BigEndian.Uint32(buf[:4]), //拿四个字节，但从第五个字节开始索引
+		crc:        binary.LittleEndian.Uint32(buf[:4]), //拿四个字节，但从第五个字节开始索引
 		recordType: buf[4],
 	}
 
-	//从第五个字节开始拿出后面的数据,并更新index
+	//从第五个字节开始拿出后面的数据,更新index,取出实际的数据
 	var index = 5
 	keySize, pos1 := binary.Varint(buf[index:])
 	index += pos1
 	valueSize, pos2 := binary.Varint(buf[index:])
 	index += pos2
 
-	//取出实际的数据
+	
 	header.keySize = uint32(keySize)
 	header.valueSize = uint32(valueSize)
 
 	//目前的index代表实际header的长度,返回到上一层
 	return header, int64(index)
-
 }
 
 // 定义一个获取 crc 值的方法

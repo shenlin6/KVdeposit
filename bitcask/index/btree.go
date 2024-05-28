@@ -46,6 +46,6 @@ func (bt *Btree) Delete(key []byte) bool {
 	bt.lock.Lock() //进行存储操作之前加锁
 	oldItem := bt.tree.Delete(it)
 	bt.lock.Unlock() //释放
-	
+
 	return oldItem != nil //为空说明我们删除操作无效，反之成功
 }
