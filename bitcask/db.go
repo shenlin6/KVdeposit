@@ -19,7 +19,7 @@ type DB struct {
 	activeFile *data.DataFile            // 目前的活跃文件(只有一个)，可以写入
 	oldFiles   map[uint32]*data.DataFile //旧的数据文件（一个或者多个）
 	index      index.Indexer             //内存索引
-	fileIDs    []int                     //有序递增的fileid，只能用于加载索引使用
+	fileIDs    []int                     //有序递增的fileID，只能用于加载索引使用（否则影响递增性）
 }
 
 // Open 打开 bitcask 储存引擎的实例
@@ -130,10 +130,39 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	}
 	//返回实际的数据
 	return logRecord.Value, err
-
 }
 
-// appendLogRecord 构造 LogRecord append 的方法
+// Delete 删除数据的方法
+func (db *DB) Delete(key []byte) error {
+	// 首先校验用户传入的Key,为空直接返回
+	if len(key) == 0 {
+		return ErrKeyIsEmpty
+	}
+
+	// 再看用户这个Key是否存在，不存在也返回
+	logRecordpos := db.index.Get(key)
+	if logRecordpos == nil {
+		return nil
+	}
+
+	// 开始删除,对logrecord进行删除标记，并存入数据文件中
+	// 进行标记
+	logRecord := &data.LogRecord{Key: key, Type: data.LogRecordDeleted}
+	// 写入数据文件中
+	_, err := db.appendLogRecord(logRecord)
+	if err != nil {
+		return nil
+	}
+
+	// 在对应的内存索引中删除
+	ok := db.index.Delete(key)
+	if !ok {
+		return ErrIndexUpdateFailed
+	}
+	return nil
+}
+
+// appendLogRecord 构造 LogRecord append 的方法：数据文件的追加写入
 func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, error) {
 	db.rwmu.Lock() //加锁
 	defer db.rwmu.Unlock()
@@ -204,7 +233,7 @@ func (db *DB) setActiveFile() error {
 	return nil
 }
 
-// loadDataFiles 加载对应的数据文件
+// loadDataFiles 数据库启动时：加载对应的数据文件
 func (db *DB) loadDataFiles() error {
 	//首先根据配置项读取存储的对应目录，拿到目录列表
 	dirEntry, err := os.ReadDir(db.option.DirPath)
@@ -228,7 +257,7 @@ func (db *DB) loadDataFiles() error {
 			fileIDs = append(fileIDs, fileID)
 		}
 	}
-	// 对 fileID进行排序，需要从小到大分别分别加载数据文件，保证递增性
+	// 对 fileIDs进行排序，需要从小到大分别分别加载数据文件，保证递增性
 	sort.Ints(fileIDs)
 	db.fileIDs = fileIDs //赋值，使其实例化的同时满足有序
 
@@ -253,7 +282,7 @@ func (db *DB) loadDataFiles() error {
 // loadIndexFromFiles 从数据文件中加载索引的方法
 func (db *DB) loadIndexFromFiles() error {
 	// 遍历文件中的所有记录，并加载到内存的索引中去
-	// 注意： map无序，想要从小到大通过fileID来添加内存索引，需要复用loadDataFiles中有序的fileIDs
+	// 注意：! ! map无序，想要从小到大通过fileID来添加内存索引，需要复用loadDataFiles中有序的fileIDs
 
 	//为空直接返回
 	if len(db.fileIDs) == 0 {
@@ -270,8 +299,10 @@ func (db *DB) loadIndexFromFiles() error {
 		} else { //旧文件
 			dataFile = db.oldFiles[fileID]
 		}
+
 		// 拿到一个文件后，从 0 开始循环处理这个文件中的所有内容
 		var offset int64 = 0
+		// 遍历一个文件的所有内容
 		for {
 			logRecord, size, err := dataFile.ReadLogRecord(offset)
 			if err != nil {
@@ -285,13 +316,19 @@ func (db *DB) loadIndexFromFiles() error {
 			}
 			//构造内存索引并保存
 			logRecordPos := data.LogRecordPos{Fid: fileID, Offset: offset}
+
+			var ok bool
 			//这个索引可能被删除，查看是否有墓碑值,有的话直接删除
 			if logRecord.Type == data.LogRecordDeleted {
-				db.index.Delete(logRecord.Key)
+				ok = db.index.Delete(logRecord.Key)
 			} else {
-				//正常的话就保存
-				db.index.Put(logRecord.Key, &logRecordPos)
+				//正常的话就加入内存索引
+				ok = db.index.Put(logRecord.Key, &logRecordPos)
 			}
+			if !ok {
+				return ErrIndexUpdateFailed
+			}
+
 			//对偏移量 offset 进行递增
 			offset += size
 		}
