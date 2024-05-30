@@ -31,7 +31,7 @@ func Open(options Options) (*DB, error) {
 	}
 
 	// 对用户传递过来的目录进行校验，如果目录不为空，但这个目录不存在（第一次使用），需要创建这个目录
-	if _, err := os.Stat(options.DirPath); os.IsExist(err) {
+	if _, err := os.Stat(options.DirPath); os.IsNotExist(err) {
 		if err := os.MkdirAll(options.DirPath, os.ModePerm); err != nil { //递归创建目录 os.ModePerm 给予目录读写执行的权限
 			return nil, err
 		}
@@ -68,14 +68,14 @@ func (db *DB) Put(key []byte, value []byte) error {
 	}
 
 	// 构造 LogRecord 结构体实例
-	logRecord := data.LogRecord{
+	logRecord := &data.LogRecord{
 		Key:   logRecordKeyWithSeqNum(key, nonTransactionSeqNum),
 		Value: value,
 		Type:  data.LogRecordNormal,
 	}
 
 	//调用 appendLogRecord,追加写入当前的活跃文件中
-	pos, err := db.appendLogRecordWithLock(&logRecord)
+	pos, err := db.appendLogRecordWithLock(logRecord)
 	if err != nil {
 		return err
 	}
@@ -210,7 +210,7 @@ func (db *DB) getValueByPosition(logRecordPos *data.LogRecordPos) ([]byte, error
 		return nil, ErrDataFileNotFound
 	}
 	//如果不为空，说明找到了对应的数据文件，根据偏移量读取对应数据
-	logRecord, _, err := dataFile.ReadLogRecord(dataFile.Offsetnow)
+	logRecord, _, err := dataFile.ReadLogRecord(logRecordPos.Offset)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +220,7 @@ func (db *DB) getValueByPosition(logRecordPos *data.LogRecordPos) ([]byte, error
 		return nil, ErrKeyNotFound
 	}
 	//返回实际的数据
-	return logRecord.Value, err
+	return logRecord.Value, nil
 }
 
 // Delete 删除数据的方法
@@ -253,6 +253,7 @@ func (db *DB) Delete(key []byte) error {
 	if !ok {
 		return ErrIndexUpdateFailed
 	}
+	
 	return nil
 }
 

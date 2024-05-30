@@ -99,14 +99,14 @@ func TestDB_WriteBatch3(t *testing.T) {
 
 	keys := db.ListKeys()
 	t.Log(len(keys))
-	//
-	//wbOpts := DefaultWriteBatchOptions
-	//wbOpts.MaxBatchNum = 10000000
-	//wb := db.NewWriteBatch(wbOpts)
-	//for i := 0; i < 500000; i++ {
-	//	err := wb.Put(utils.GetTestKey(i), utils.RandomValue(1024))
-	//	assert.Nil(t, err)
-	//}
-	//err = wb.Commit()
-	//assert.Nil(t, err)
+	
+	wbOpts := DefaultWriteBatchOptions
+	wbOpts.MaxBatchNum = 10000000
+	wb := db.NewWriteBatch(wbOpts)
+	for i := 0; i < 500000; i++ {
+		err := wb.Put(utils.GetTestKey(i), utils.RandomValue(1024))
+		assert.Nil(t, err)
+	}
+	err = wb.Commit()
+	assert.Nil(t, err)
 }

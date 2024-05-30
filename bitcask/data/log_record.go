@@ -106,14 +106,16 @@ func decodeLogRecordHeader(buf []byte) (*logRecordHeader, int64) {
 
 	//从第五个字节开始拿出后面的数据,更新index,取出实际的数据
 	var index = 5
-	keySize, pos1 := binary.Varint(buf[index:])
-	index += pos1
-	valueSize, pos2 := binary.Varint(buf[index:])
-	index += pos2
 
+	keySize, n := binary.Varint(buf[index:])
 	header.keySize = uint32(keySize)
-	header.valueSize = uint32(valueSize)
+	index += n
 
+	// 取出实际的 value size
+	valueSize, n := binary.Varint(buf[index:])
+	header.valueSize = uint32(valueSize)
+	index += n
+	
 	//目前的index代表实际header的长度,返回到上一层
 	return header, int64(index)
 }

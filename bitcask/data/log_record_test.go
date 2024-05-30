@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// ok
 func TestEncodeLogRecord(t *testing.T) {
 	// 正常情况
 	rec1 := &LogRecord{
@@ -38,6 +39,7 @@ func TestEncodeLogRecord(t *testing.T) {
 	assert.Greater(t, n3, int64(5))
 }
 
+// ok
 func TestDecodeLogRecordHeader(t *testing.T) {
 	headerBuf1 := []byte{104, 82, 240, 150, 0, 8, 20}
 	h1, size1 := decodeLogRecordHeader(headerBuf1)
@@ -67,6 +69,7 @@ func TestDecodeLogRecordHeader(t *testing.T) {
 	assert.Equal(t, uint32(10), h3.valueSize)
 }
 
+// ok
 func TestGetLogRecordCRC(t *testing.T) {
 	rec1 := &LogRecord{
 		Key:   []byte("name"),

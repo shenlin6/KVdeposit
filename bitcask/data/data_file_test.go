@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// ok
 func TestOpenDataFile(t *testing.T) {
 
 	dataFileA, err := OpenDataFile(os.TempDir(), 0)
@@ -24,6 +25,7 @@ func TestOpenDataFile(t *testing.T) {
 	assert.NotNil(t, dataFileC)
 }
 
+// ok
 func TestData_Write(t *testing.T) {
 	dataFileA, err := OpenDataFile(os.TempDir(), 0)
 	assert.Nil(t, err)
@@ -37,6 +39,7 @@ func TestData_Write(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+// ok
 func TestData_Close(t *testing.T) {
 	dataFileA, err := OpenDataFile(os.TempDir(), 0)
 	assert.Nil(t, err)
@@ -49,6 +52,7 @@ func TestData_Close(t *testing.T) {
 	assert.Nil(t, err)
 }
 
+// ok
 func TestData_Sync(t *testing.T) {
 	dataFileA, err := OpenDataFile(os.TempDir(), 2)
 	assert.Nil(t, err)

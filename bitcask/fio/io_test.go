@@ -15,10 +15,11 @@ func destroyFile(name string) {
 }
 
 func TestNewFileIDManager(t *testing.T) {
-	fid, err := NewFileIOManager(filepath.Join("C:\\tmp", "dataA"))
+	fid, err := NewFileIOManager(filepath.Join("example", "dataA"))
 	assert.Nil(t, err)
 	assert.NotNil(t, fid)
 }
+
 func TestFileIO_Write(t *testing.T) {
 
 	path := filepath.Join("/tmp\\", "dataA")
