@@ -12,4 +12,5 @@ var (
 	ErrDirPathNil             = errors.New("database dir path is empty")
 	ErrDataFileSizeNil        = errors.New("data file size must greater than zero ")
 	ErrDataDirectoryCorrupted = errors.New("the database directory may be corrupted")
+	ErrExceedMaxBatchNum      = errors.New("exceed the max num of batch")
 )

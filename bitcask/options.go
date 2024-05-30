@@ -25,7 +25,7 @@ type Options struct {
 	DataFileMergeRatio float32
 }
 
-// IteratorOptions 索引迭代器配置项
+// IteratorOptions 索引迭代器配置项（供用户自行选择传递）
 type IteratorOptions struct {
 	// 遍历前缀为指定值的 Key，默认为空
 	Prefix []byte
@@ -33,12 +33,12 @@ type IteratorOptions struct {
 	Reverse bool
 }
 
-// WriteBatchOptions 批量写配置项
+// WriteBatchOptions 批量写的配置项（用户自己配置）
 type WriteBatchOptions struct {
 	// 一个批次当中最大的数据量
 	MaxBatchNum uint
 
-	// 提交时是否 sync 持久化
+	// 提交事务的时候是否 sync 持久化
 	SyncWrites bool
 }
 
@@ -65,6 +65,7 @@ var DefaultOptions = Options{
 	DataFileMergeRatio: 0.5,
 }
 
+// DefaultIteratorOptions 默认的索引迭代器的配置
 var DefaultIteratorOptions = IteratorOptions{
 	Prefix:  nil,
 	Reverse: false,

@@ -2,6 +2,16 @@ package fio
 
 import "os"
 
+type FileIOType = byte
+
+const (
+	// StandardFIO 标准文件 IO
+	StandardFIO FileIOType = iota
+
+	// MemoryMap 内存文件映射
+	MemoryMap
+)
+
 // FileID 标准系统文件 ID
 
 //对golang标准的文件操作进行封装

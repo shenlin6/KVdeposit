@@ -8,8 +8,9 @@ import (
 type LogRecordType = byte
 
 const (
-	LogRecordNormal  LogRecordType = iota //正常操作的类型
-	LogRecordDeleted                      //针对被删除的文件操作的类型
+	LogRecordNormal      LogRecordType = iota //正常操作的类型
+	LogRecordDeleted                          //针对被删除的文件操作的类型
+	LogRecordTxnFinished                      //标识事务提交的类型
 
 	// 包括 crc校验值(4字节) 、Type类型(1字节)、Key 的大小、Value 的大小 (这两个为动态长度，节约内存)
 	// 4 + 1 + 5 + 5 =15
@@ -27,6 +28,7 @@ type LogRecord struct {
 	Key   []byte
 	Value []byte
 	Type  LogRecordType //墓碑值，可用于标记删除
+
 }
 
 // logRecordHeader header 的信息
@@ -35,6 +37,12 @@ type logRecordHeader struct {
 	keySize    uint32        // Key 的大小
 	valueSize  uint32        // Value 的大小
 	recordType LogRecordType // Type类型(1字节)
+}
+
+// TransactionRecord 缓存事务类型的相关数据
+type TransactionRecord struct {
+	Record *LogRecord
+	Pos    *LogRecordPos
 }
 
 // EncodeLogRecord 对 LogRecord 进行编码，返回字节数组及长度
@@ -103,7 +111,6 @@ func decodeLogRecordHeader(buf []byte) (*logRecordHeader, int64) {
 	valueSize, pos2 := binary.Varint(buf[index:])
 	index += pos2
 
-	
 	header.keySize = uint32(keySize)
 	header.valueSize = uint32(valueSize)
 
