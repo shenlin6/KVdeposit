@@ -10,7 +10,11 @@ import (
 	"bitcask.go/fio"
 )
 
-const DataFileSuffix = ".data"
+const (
+	DataFileSuffix        = ".data"
+	HintFilename          = "hint-index"
+	MergeFinishedFilename = "merge-finished"
+)
 
 var (
 	//自定义错误信息：
@@ -21,14 +25,39 @@ var (
 type DataFile struct {
 	FileID    uint32        //文件id
 	Offsetnow int64         //文件现在的偏移量（目前写到哪个位置了）
-	IOManager fio.IOManager //实际对于数据的操作（io读写）
+	IOManager fio.IOManager //实际对于数据的操作open（io读写）
 }
 
 // OpenDataFile 打开新的数据文件 (需要用户传入目录的路径)
 func OpenDataFile(dirPath string, fileid uint32) (*DataFile, error) {
 	// 根据 dirPath 和 fileid 生成完整文件名称(需要加上后缀)
-	fileName := filepath.Join(fmt.Sprintf("%09d", fileid) + DataFileSuffix)
+	fileName := GetDataFileName(dirPath, fileid)
 
+	return newGetFile(fileName, fileid)
+}
+
+// OpenHintFile 打开hint文件的方法
+func OpenHintFile(ditPath string) (*DataFile, error) {
+	fileName := filepath.Join(ditPath, HintFilename)
+
+	return newGetFile(fileName, 0)
+}
+
+// OpenMergeFinishedFile 标识Merge操作完成的文件
+func OpenMergeFinishedFile(dirPath string) (*DataFile, error) {
+	fileName := filepath.Join(dirPath, MergeFinishedFilename)
+
+	return newGetFile(fileName, 0)
+}
+
+// GetDataFileName 获取数据文件的ID
+func GetDataFileName(dirPath string, fileID uint32) string {
+
+	return filepath.Join(fmt.Sprintf("%09d", fileID) + DataFileSuffix)
+
+}
+
+func newGetFile(fileName string, fileID uint32) (*DataFile, error) {
 	//拿到 IOManager 的对象
 	ioManager, err := fio.NewIOManager(fileName)
 	if err != nil {
@@ -36,7 +65,7 @@ func OpenDataFile(dirPath string, fileid uint32) (*DataFile, error) {
 	}
 	// 初始化数据文件
 	return &DataFile{
-		FileID:    fileid,
+		FileID:    fileID,
 		Offsetnow: 0,
 		IOManager: ioManager,
 	}, nil
@@ -113,6 +142,20 @@ func (df *DataFile) ReadLogRecord(offset int64) (*LogRecord, int64, error) {
 }
 
 // 其他的方法，比如: 在数据文件中写入数据，Sync Close 等方法，直接调用 IOMAnager 就可以了
+
+// WriteHintRecord 创建一条Hint文件的logRecord（储存原文件的 Key 和索引信息）
+func (df *DataFile) WriteHintRecord(key []byte, pos *LogRecordPos) error {
+	record := &LogRecord{
+		Key:   key,
+		Value: EncodeLogRecordPos(pos), //对应的位置索引
+	}
+
+	// 对这个record进行编码
+	encRecord, _ := EncodeLogRecord(record)
+
+	// 文件写入
+	return df.Write(encRecord)
+}
 
 // Sync 持久化操作
 func (df *DataFile) Sync() error {

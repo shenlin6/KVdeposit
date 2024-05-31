@@ -3,6 +3,7 @@ package bitcask
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ type DB struct {
 	index      index.Indexer             // 内存索引
 	fileIDs    []int                     // 有序递增的fileID，只能用于加载索引使用（否则影响递增性）
 	seqNum     uint64                    //事务的序列号，严格递增
+	isMerging  bool                      //标识这个时刻有无merge正在进行(只允许一个)
 }
 
 // Open 打开 bitcask 储存引擎的实例
@@ -46,13 +48,23 @@ func Open(options Options) (*DB, error) {
 		index:    index.NewIndexer(options.IndexType), //用户自己选择索引类型（Btree ART）
 	}
 
-	// 加载对应的数据文件
+	// 首先加载 merge 的数据目录
+	if err := db.loadMergeFiles(); err != nil {
+		return nil, err
+	}
+
+	// 然后加载对应的数据文件
 	if err := db.loadDataFiles(); err != nil {
 		return nil, err
 	}
 
-	// 从数据文件中加载索引的方法
-	if err := db.loadIndexFromFiles(); err != nil {
+	//首先从 hint文件中加载索引
+	if err := db.loadIndexFromHintFiles(); err != nil {
+		return nil, err
+	}
+
+	// 然后从数据文件中加载索引的方法
+	if err := db.loadIndexFromDataFiles(); err != nil {
 		return nil, err
 	}
 
@@ -253,7 +265,7 @@ func (db *DB) Delete(key []byte) error {
 	if !ok {
 		return ErrIndexUpdateFailed
 	}
-	
+
 	return nil
 }
 
@@ -380,13 +392,30 @@ func (db *DB) loadDataFiles() error {
 }
 
 // loadIndexFromFiles 从数据文件中加载索引的方法
-func (db *DB) loadIndexFromFiles() error {
+func (db *DB) loadIndexFromDataFiles() error {
 	// 遍历文件中的所有记录，并加载到内存的索引中去
 	// 注意：! ! map无序，想要从小到大通过fileID来添加内存索引，需要复用loadDataFiles中有序的fileIDs
 
 	//为空直接返回
 	if len(db.fileIDs) == 0 {
 		return nil
+	}
+
+	//判断是否在hint文件中已经加载过的初始化变量
+	hasMerged, nonMergeFileID := false, uint32(0)
+
+	//尝试拿到了merge完成的标识
+	mergeFileName := filepath.Join(db.option.DirPath, data.MergeFinishedFilename)
+
+	//如果拿到了标识
+	if _, err := os.Stat(mergeFileName); err == nil {
+		//取出没有参与merge的ID
+		fileID, err := db.getNonMergeFileID(db.option.DirPath)
+		if err != nil {
+			return err
+		}
+		hasMerged = true
+		nonMergeFileID = fileID
 	}
 
 	//定义更新内存索引的方法
@@ -414,8 +443,15 @@ func (db *DB) loadIndexFromFiles() error {
 	// 遍历所有的文件ID,取出所有文件中的内容
 	for i, fid := range db.fileIDs {
 		//类型转换，方便处理活跃文件和旧文件
+		var fileID = uint32(fid)
+
+		//如果发现数据文件的ID小于merge文件中的ID，那么直接跳过
+		if hasMerged && fileID < nonMergeFileID {
+			continue
+		}
+
 		var dataFile *data.DataFile
-		fileID := uint32(fid)
+
 		if fileID == db.activeFile.FileID {
 			dataFile = db.activeFile
 		} else { //旧文件

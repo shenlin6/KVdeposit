@@ -466,3 +466,169 @@ const nonTransactionSeqNum uint64 = 0
 ​      }
 ```
 
+
+
+# Merge：清理垃圾数据
+
+
+
+
+
+如果我们在merge的过程中，遇到了中途退出或者出现故障，但整个merge操作还没有完成的时候，这时候得到的重写文件其实是无意义的。因此我们需要在Merge重写之后的末尾，添加一个标识这个merge完成的文件，如果有这个标识，则代表这里面全都是重写之后的有效数据，如果没有这个标识的话，需要将器其删除后重新进行merge操作。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## 细节处理
+
+1. 返回时释放锁
+2. Merge文件需要**从小到大**排序
+
+```
+//将Merge的文件从小到大进行排序，依次Merge
+
+  sort.Slice(mergeFiles, func(i, j int) bool {
+
+​    return mergeFiles[i].FileID < mergeFiles[j].FileID
+
+  })
+
+
+```
+
+3. 每次打开Bitcask 实例的时候不要都Sync 持久化一次，会显著**降低性能**，等**最后结束后再统一Sync**
+
+   ```
+   // 所有文件都重写完之后，才开始持久化操作（对最新的hintFile）
+   
+     if err := hintFile.Sync(); err != nil {
+   
+   ​    return err
+   
+     }
+   ```
+
+   
+
+4. 已经确定为**有效数据**，在重写的时候不需要处理**事务序列号**了
+
+   ```
+   //和内存中的所有进行比较判断，如果是有效的数据则重写
+   
+   ​      if logRecordPos != nil && logRecordPos.Fid == dataFile.FileID && logRecordPos.Offset == offset {
+   
+   ​        //写进临时目录当中
+   
+   ​        logRecord.Key = logRecordKeyWithSeqNum(realKey, nonTransactionSeqNum)
+   
+   ​      }
+   ```
+
+5. 处理hint文件的时候，我们构造一条LogRecord，但其中只储存**编码后**的**索引信息**和**原始的Key**
+
+   ```
+   // WriteHintRecord 创建一条Hint文件的logRecord（储存原文件的 Key 和索引信息）
+   
+   func (df *DataFile) WriteHintRecord(key []byte, pos *LogRecordPos) error {
+   
+     record := &LogRecord{
+   
+   ​    Key:  key,
+   
+   ​    Value: EncodeLogRecordPos(pos), //对应的位置索引
+   
+     }
+   
+     // 对这个record进行编码
+   
+     encRecord, _ := EncodeLogRecord(record)
+   
+     // 文件写入
+   
+     return df.Write(encRecord)
+   
+   }
+   ```
+
+   
+
+6. merge完成之后，我们需要**将旧的文件删除**，用新的merge文件替代，**但是** ！我们**最后一个merge文件并没有参与merge操作**，我们不能将这个文件删除，否则会导致**数据重写不完整**的情况。
+
+   
+
+7. 开始**删除**对应的**旧数据文件**时，因为我们遵循文件ID递增的原则，我们只能删除比最新一个**没有完成merge操作的文件**对应**FileID更小**的文件！
+
+   
+
+8. 最后我们需要更改Merge文件的目录作为新的文件目录，我们直接**更改文件名称**即可，**不必真的调换数据**
+
+```
+// 将新的数据文件移动过来
+
+  for _, fileName := range mergeFileNames {
+
+​    //更改对应的目录
+
+​    //源目录
+
+​    srcPath := filepath.Join(mergePath, fileName)
+
+​    //目标地址
+
+​    desPath := filepath.Join(db.option.DirPath, fileName)
+
+​    //更改名称即可
+
+​    if err := os.Rename(srcPath, desPath); err != nil {
+
+​      return err
+
+​    }
+
+  }
+```
+
+ 9.我么需要把**Hint文件**的加载放在**数据库启动**的函数里，并且在从数据文件总加载索引之前，**先从hint文件中加载索引**，加载文件的顺序同样如此。
+
+```
+// 首先加载 merge 的数据文件
+  if err := db.loadMergeFiles(); err != nil {
+
+​    return nil, err
+
+  }
+  // 然后加载对应的数据文件
+  if err := db.loadDataFiles(); err != nil {
+​    return nil, err
+  }
+
+  //首先从 hint文件中加载索引
+  if err := db.loadIndexFromHintFiles(); err != nil {
+​    return nil, err
+  }
+  // 然后从数据文件中加载索引
+  if err := db.loadIndexFromFiles(); err != nil {
+
+​    return nil, err
+
+  }
+
+```
+
+
+
+而且，为了**提升性能**，我们在**hint文件**中加载过的数据和索引，在数据文件中**不再重复加载**，同时也避免重复加载。
+
+具体实现逻辑为:我们之前在最后一个merge文件中添加了**标识，**如果说**数据文件中的 FileID 小于这个标识对应的ID**，那么说明这个文件在hint文件中已经被加载过了，**直接跳过**就行。
+

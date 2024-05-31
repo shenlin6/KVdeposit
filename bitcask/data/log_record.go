@@ -91,6 +91,35 @@ func EncodeLogRecord(logRecord *LogRecord) ([]byte, int64) {
 	return encBytes, int64(size) //返回一整条 logRecord 和其长度
 }
 
+// 对索引信息进行编码的方法
+func EncodeLogRecordPos(pos *LogRecordPos) []byte {
+
+	buf := make([]byte, binary.MaxVarintLen32, binary.MaxVarintLen64)
+	var index = 0
+	//编码文件ID
+	index += binary.PutUvarint(buf[index:], uint64(pos.Fid))
+	//编码偏移量
+	index += binary.PutUvarint(buf[index:], uint64(pos.Offset))
+	return buf[:index]
+}
+
+// 对索引信息进行解码的方法
+func DecodeLogRecordPos(buf []byte) *LogRecordPos {
+	// 依次将fileID和offset取出来
+	var index = 0
+	fileID, n := binary.Varint(buf[index:])
+	index += n
+
+	offset, _ := binary.Varint(buf[index:])
+
+	// 构造出索引信息并返回
+	return &LogRecordPos{
+		Fid:    uint32(fileID),
+		Offset: offset,
+	}
+
+}
+
 // 对 headerbuf 进行解码的方法,返回 header 的实际的头部信息和长度
 func decodeLogRecordHeader(buf []byte) (*logRecordHeader, int64) {
 	//如果连CRC的四个字节长度都没达到，直接返回
@@ -115,7 +144,7 @@ func decodeLogRecordHeader(buf []byte) (*logRecordHeader, int64) {
 	valueSize, n := binary.Varint(buf[index:])
 	header.valueSize = uint32(valueSize)
 	index += n
-	
+
 	//目前的index代表实际header的长度,返回到上一层
 	return header, int64(index)
 }
