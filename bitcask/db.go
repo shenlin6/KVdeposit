@@ -1,6 +1,7 @@
 package bitcask
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -10,10 +11,15 @@ import (
 	"sync"
 
 	"bitcask.go/data"
+	"bitcask.go/fio"
 	"bitcask.go/index"
+	"github.com/gofrs/flock"
 )
 
-const seqNumKey = "seq.num"
+const (
+	seqNumKey    = "seq.num"
+	fileLockName = "flock"
+)
 
 // DB bitcask 存储引擎实例的结构体
 type DB struct {
@@ -27,6 +33,8 @@ type DB struct {
 	isMerging        bool                      //标识这个时刻有无merge正在进行(只允许一个)
 	seqNumFileExists bool                      //标识是否有事务序列号的文件
 	isNewInitial     bool                      //判断是否是第一次初始化数据文件的用户
+	fileLock         *flock.Flock              //文件锁，保证多进程之间互斥
+	bytesWrite       uint                      //当前写了多少字节
 }
 
 // Open 打开 bitcask 储存引擎的实例
@@ -48,6 +56,19 @@ func Open(options Options) (*DB, error) {
 		}
 	}
 
+	// 判断当前数据目录是否正在使用
+	fileLock := flock.New(filepath.Join(options.DirPath, fileLockName)) //初始化文件锁
+
+	//尝试去获取这把锁
+	hold, err := fileLock.TryLock()
+	if err != nil {
+		return nil, err
+	}
+	//如果没获取到，说明有进程在使用这把锁，返回错误
+	if !hold {
+		return nil, ErrFilelockIsInUse
+	}
+
 	//如果序列号文件存在但是对应的文件为空 isNewInitial 也应该为 true
 	entries, err := os.ReadDir(options.DirPath)
 	if err != nil {
@@ -65,6 +86,7 @@ func Open(options Options) (*DB, error) {
 		oldFiles:     make(map[uint32]*data.DataFile),
 		index:        index.NewIndexer(options.IndexType, options.DirPath, options.SyncWrites), //用户自己选择索引类型（Btree ART）
 		isNewInitial: isNewInitial,
+		fileLock:     fileLock,
 	}
 
 	// 首先加载 merge 的数据目录
@@ -88,6 +110,14 @@ func Open(options Options) (*DB, error) {
 		if err := db.loadIndexFromDataFiles(); err != nil {
 			return nil, err
 		}
+
+		//重置 IO 类型为标准IO类型
+		if db.option.MMapAtStartup { //只用作启动加速
+			if err := db.resetIOType(); err != nil {
+				return nil, err
+			}
+		}
+
 	}
 
 	//如果是B+树类型，打开当前事务序列号的文件，取出事务序列号
@@ -162,9 +192,14 @@ func (db *DB) Get(key []byte) ([]byte, error) {
 	return db.getValueByPosition(logRecordPos)
 }
 
-// Close 关闭数据库
+// Close 关闭数据库,只需要关闭当前的活跃文件即可
 func (db *DB) Close() error {
-	// 只需要关闭当前的活跃文件即可
+	//关闭文件锁
+	defer func() {
+		if err := db.fileLock.Unlock(); err != nil {
+			panic(fmt.Sprintf("failed to unlock the directory,%#v", err))
+		}
+	}()
 
 	//为空直接返回
 	if db.activeFile == nil {
@@ -380,10 +415,25 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 		return nil, err
 	}
 
-	//提供配置项，让用户自行判断是否需要安全的持久化
-	if db.option.SyncWrites {
+	//对已经写的数据字段进行递增
+	db.bytesWrite += uint(size)
+
+	//根据用户配置来决定是否需要持久化
+	var isNeedSync = db.option.SyncWrites
+
+	if !isNeedSync && db.option.BytesPerSync > 0 && db.bytesWrite >= db.option.BytesPerSync {
+		//走到这里代表达到需要持久化的阈值了
+		isNeedSync = true
+
+	}
+
+	if isNeedSync {
 		if err := db.activeFile.Sync(); err != nil {
 			return nil, err
+		}
+		// 清空累计值
+		if db.bytesWrite > 0 {
+			db.bytesWrite = 0
 		}
 	}
 
@@ -404,7 +454,7 @@ func (db *DB) setActiveFile() error {
 		defaultFileID = db.activeFile.FileID + 1
 	}
 	//打开新的数据文件作为活跃文件
-	datafile, err := data.OpenDataFile(db.option.DirPath, defaultFileID)
+	datafile, err := data.OpenDataFile(db.option.DirPath, defaultFileID, fio.StandardFIO)
 	if err != nil {
 		return err
 	}
@@ -443,7 +493,12 @@ func (db *DB) loadDataFiles() error {
 
 	//遍历每一个文件的ID,打开每一个对应的数据文件
 	for i, fid := range fileIDs {
-		datafile, err := data.OpenDataFile(db.option.DirPath, uint32(fid))
+		IOType := fio.StandardFIO
+		if db.option.MMapAtStartup {
+			IOType = fio.MemoryMap
+		}
+
+		datafile, err := data.OpenDataFile(db.option.DirPath, uint32(fid), IOType)
 		if err != nil {
 			return err
 		}
@@ -634,4 +689,25 @@ func (db *DB) loadSeqNum() error {
 	db.seqNumFileExists = true
 
 	return os.Remove(fileName)
+}
+
+// resetIOType 将数据文件的 IO 类型设置为标准的文件IO类型（golang自带的）
+func (db *DB) resetIOType() error {
+	//当前活跃文件为空直接返回
+	if db.activeFile == nil {
+		return nil
+	}
+
+	//设置当前活跃文件
+	if err := db.activeFile.SetIOManager(db.option.DirPath, fio.StandardFIO); err != nil {
+		return err
+	}
+
+	//遍历设置旧的数据文件
+	for _, dataFile := range db.oldFiles {
+		if err := dataFile.SetIOManager(db.option.DirPath, fio.StandardFIO); err != nil {
+			return err
+		}
+	}
+	return nil
 }

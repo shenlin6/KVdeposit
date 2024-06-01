@@ -1,26 +1,48 @@
 package fio
 
-const DataFilePerm = 8644
+import "os"
 
-// 抽象 IO 管理器的接口 可以接入不同的IO类型（标准IO文件）
-type IOManager interface {
-	// Read 从对应位置读取数据
-	Read([]byte, int64) (int, error)
-
-	// Write 写入字节级别文件中
-	Write([]byte) (int, error)
-
-	// Sync 持久化数据
-	Sync() error
-
-	// Close 关闭文件
-	Close() error
-
-	// Size 获取剩余文件大小
-	Size() (int64, error)
+//对golang标准的文件操作进行封装
+type FileID struct {
+	fd *os.File //系统文件描述码
 }
 
-// NewIDManager 初始化 IDManager 的方法,目前只能传入标准的 fileName
-func NewIOManager(fileName string) (IOManager, error) {
-	return NewFileIOManager(fileName)
+// NewFileIOManager 初始化标准文件 IO
+func NewFileIOManager(filename string) (*FileID, error) {
+	fid, err := os.OpenFile(
+		filename,
+		os.O_CREATE|os.O_RDWR|os.O_APPEND, //没有则创建，只允许追加写入
+		DataFilePerm,                      //文件所有者可写可读，其他用户只可读
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &FileID{fd: fid}, nil
+}
+
+// 封装几个 *os.File 的接口，主要为了方便后续继续添加一些其他IO类型（如：MMP 自定义IO系统 等等）
+
+func (fio *FileID) Read(b []byte, offset int64) (int, error) {
+	return fio.fd.ReadAt(b, offset)
+}
+
+func (fio *FileID) Write(b []byte) (int, error) {
+	return fio.fd.Write(b)
+}
+
+func (fio *FileID) Sync() error {
+	return fio.fd.Sync()
+}
+
+func (fio *FileID) Close() error {
+	return fio.fd.Close()
+}
+
+func (fio *FileID) Size() (int64, error) {
+	stat, err := fio.fd.Stat()
+	if err != nil {
+		return 0, err
+	}
+
+	return stat.Size(), nil
 }

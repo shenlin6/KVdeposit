@@ -4,30 +4,31 @@ import (
 	"os"
 	"testing"
 
+	"bitcask.go/fio"
 	"github.com/stretchr/testify/assert"
 )
 
 // ok
 func TestOpenDataFile(t *testing.T) {
 
-	dataFileA, err := OpenDataFile(os.TempDir(), 0)
+	dataFileA, err := OpenDataFile(os.TempDir(), 0, fio.StandardFIO)
 	assert.Nil(t, err)
 	assert.NotNil(t, dataFileA)
 
 	// case 打开多个文件
-	dataFileB, err := OpenDataFile(os.TempDir(), 1)
+	dataFileB, err := OpenDataFile(os.TempDir(), 1, fio.StandardFIO)
 	assert.Nil(t, err)
 	assert.NotNil(t, dataFileB)
 
 	// case 重复打开一个文件
-	dataFileC, err := OpenDataFile(os.TempDir(), 1)
+	dataFileC, err := OpenDataFile(os.TempDir(), 1, fio.StandardFIO)
 	assert.Nil(t, err)
 	assert.NotNil(t, dataFileC)
 }
 
 // ok
 func TestData_Write(t *testing.T) {
-	dataFileA, err := OpenDataFile(os.TempDir(), 0)
+	dataFileA, err := OpenDataFile(os.TempDir(), 0, fio.StandardFIO)
 	assert.Nil(t, err)
 	assert.NotNil(t, dataFileA)
 
@@ -41,7 +42,7 @@ func TestData_Write(t *testing.T) {
 
 // ok
 func TestData_Close(t *testing.T) {
-	dataFileA, err := OpenDataFile(os.TempDir(), 0)
+	dataFileA, err := OpenDataFile(os.TempDir(), 0, fio.StandardFIO)
 	assert.Nil(t, err)
 	assert.NotNil(t, dataFileA)
 
@@ -54,7 +55,7 @@ func TestData_Close(t *testing.T) {
 
 // ok
 func TestData_Sync(t *testing.T) {
-	dataFileA, err := OpenDataFile(os.TempDir(), 2)
+	dataFileA, err := OpenDataFile(os.TempDir(), 2, fio.StandardFIO)
 	assert.Nil(t, err)
 	assert.NotNil(t, dataFileA)
 

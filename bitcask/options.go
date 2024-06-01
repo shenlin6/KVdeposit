@@ -12,7 +12,7 @@ type Options struct {
 	// 每次写数据是否持久化
 	SyncWrites bool
 
-	// 累计写到多少字节后进行持久化
+	// 累计写到多少字节后进行持久化(用户自行设置)
 	BytesPerSync uint
 
 	// 索引类型

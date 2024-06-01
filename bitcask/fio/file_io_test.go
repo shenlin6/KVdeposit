@@ -22,7 +22,7 @@ func TestNewFileIDManager(t *testing.T) {
 
 func TestFileIO_Write(t *testing.T) {
 
-	path := filepath.Join("/tmp\\", "dataA")
+	path := filepath.Join("C:\\tmp", "dataA")
 	fio, err := NewFileIOManager(path)
 	defer destroyFile(path)
 
@@ -44,7 +44,7 @@ func TestFileIO_Write(t *testing.T) {
 }
 
 func TestFileIO_Read(t *testing.T) {
-	path := filepath.Join("/tmp\\", "dataA")
+	path := filepath.Join("/tmp", "dataA")
 	fio, err := NewFileIOManager(path)
 	defer destroyFile(path)
 

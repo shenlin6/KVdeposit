@@ -30,32 +30,32 @@ type DataFile struct {
 }
 
 // OpenDataFile 打开新的数据文件 (需要用户传入目录的路径)
-func OpenDataFile(dirPath string, fileid uint32) (*DataFile, error) {
+func OpenDataFile(dirPath string, fileid uint32, IOType fio.FileIOType) (*DataFile, error) {
 	// 根据 dirPath 和 fileid 生成完整文件名称(需要加上后缀)
 	fileName := GetDataFileName(dirPath, fileid)
 
-	return newGetFile(fileName, fileid)
+	return newGetDataFile(fileName, fileid, IOType)
 }
 
 // OpenHintFile 打开hint文件的方法
 func OpenHintFile(ditPath string) (*DataFile, error) {
 	fileName := filepath.Join(ditPath, HintFilename)
 
-	return newGetFile(fileName, 0)
+	return newGetDataFile(fileName, 0, fio.StandardFIO)
 }
 
 // OpenMergeFinishedFile 标识Merge操作完成的文件
 func OpenMergeFinishedFile(dirPath string) (*DataFile, error) {
 	fileName := filepath.Join(dirPath, MergeFinishedFilename)
 
-	return newGetFile(fileName, 0)
+	return newGetDataFile(fileName, 0, fio.StandardFIO)
 }
 
 // OpenSeqNUmFile 打开保存事务序列号的文件
 func OpenSeqNUmFile(dirPath string) (*DataFile, error) {
 	fileName := filepath.Join(dirPath, SeqNumFileName)
 
-	return newGetFile(fileName, 0)
+	return newGetDataFile(fileName, 0, fio.StandardFIO)
 }
 
 // GetDataFileName 获取数据文件的ID
@@ -65,9 +65,9 @@ func GetDataFileName(dirPath string, fileID uint32) string {
 
 }
 
-func newGetFile(fileName string, fileID uint32) (*DataFile, error) {
+func newGetDataFile(fileName string, fileID uint32, IOType fio.FileIOType) (*DataFile, error) {
 	//拿到 IOManager 的对象
-	ioManager, err := fio.NewIOManager(fileName)
+	ioManager, err := fio.NewIOManager(fileName, IOType)
 	if err != nil {
 		return nil, err
 	}
@@ -184,6 +184,23 @@ func (df *DataFile) Write(buf []byte) error {
 	}
 
 	df.Offsetnow += int64(n)
+	return nil
+}
+
+// SetIOManager 设置文件 IO 类型
+func (df *DataFile) SetIOManager(dirPath string, IOType fio.FileIOType) error {
+	//关闭原来的IOManager
+	if err := df.IOManager.Close(); err != nil {
+		return err
+	}
+
+	ioManager, err := fio.NewIOManager(GetDataFileName(dirPath, df.FileID), IOType)
+	if err != nil {
+		return err
+	}
+	//重置 IOManager
+	df.IOManager = ioManager
+
 	return nil
 }
 
