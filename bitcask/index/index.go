@@ -23,30 +23,36 @@ type Indexer interface {
 
 	// 返回索引中的数据量（Key值）
 	Size() int
+
+	//关闭索引
+	Close() error
 }
 
 // 定义索引类型的枚举
 type IndexType = int8
 
 const (
-	// Btree 索引
+	// Btree 索引类型
 	BTRee IndexType = iota + 1
 
-	// ART 自适应基数数索引
-	ART // 后面再数显
+	// ART 自适应基数数索引类型
+	ART
 
+	// B+树 索引类型
+	BpTree
 )
 
 // NewIndexer 初始化索引接口实例
-func NewIndexer(typ IndexType) Indexer {
+func NewIndexer(typ IndexType, dirPath string, sync bool) Indexer {
 	switch typ {
 	case BTRee:
 		return NewBtree()
 	case ART:
-		//后面再实现
-		return nil
+		return NewART()
+	case BpTree:
+		return NewBPlusTree(dirPath, sync)
 	default:
-		panic("unsupported index data type")
+		panic("unsupported index data type") //不支持这种索引结构
 	}
 }
 
@@ -81,5 +87,5 @@ type Iterator interface {
 	Valid() bool
 
 	// 关闭迭代器，释放相应资源
-	Close()
+	Close() 
 }

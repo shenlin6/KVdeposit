@@ -13,16 +13,20 @@ import (
 	"bitcask.go/index"
 )
 
+const seqNumKey = "seq.num"
+
 // DB bitcask 存储引擎实例的结构体
 type DB struct {
-	option     Options                   // 用户自己配置的选项
-	rwmu       *sync.RWMutex             // 读写互斥锁的结构体类型
-	activeFile *data.DataFile            // 目前的活跃文件(只有一个)，可以写入
-	oldFiles   map[uint32]*data.DataFile // 旧的数据文件（一个或者多个）
-	index      index.Indexer             // 内存索引
-	fileIDs    []int                     // 有序递增的fileID，只能用于加载索引使用（否则影响递增性）
-	seqNum     uint64                    //事务的序列号，严格递增
-	isMerging  bool                      //标识这个时刻有无merge正在进行(只允许一个)
+	option           Options                   // 用户自己配置的选项
+	rwmu             *sync.RWMutex             // 读写互斥锁的结构体类型
+	activeFile       *data.DataFile            // 目前的活跃文件(只有一个)，可以写入
+	oldFiles         map[uint32]*data.DataFile // 旧的数据文件（一个或者多个）
+	index            index.Indexer             // 内存索引
+	fileIDs          []int                     // 有序递增的fileID，只能用于加载索引使用（否则影响递增性）
+	seqNum           uint64                    //事务的序列号，严格递增
+	isMerging        bool                      //标识这个时刻有无merge正在进行(只允许一个)
+	seqNumFileExists bool                      //标识是否有事务序列号的文件
+	isNewInitial     bool                      //判断是否是第一次初始化数据文件的用户
 }
 
 // Open 打开 bitcask 储存引擎的实例
@@ -32,20 +36,35 @@ func Open(options Options) (*DB, error) {
 		return nil, err
 	}
 
+	var isNewInitial bool
+
 	// 对用户传递过来的目录进行校验，如果目录不为空，但这个目录不存在（第一次使用），需要创建这个目录
 	if _, err := os.Stat(options.DirPath); os.IsNotExist(err) {
+
+		isNewInitial = true //第一次初始化数据文件
+
 		if err := os.MkdirAll(options.DirPath, os.ModePerm); err != nil { //递归创建目录 os.ModePerm 给予目录读写执行的权限
 			return nil, err
 		}
 	}
 
+	//如果序列号文件存在但是对应的文件为空 isNewInitial 也应该为 true
+	entries, err := os.ReadDir(options.DirPath)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		isNewInitial = true
+	}
+
 	//初始化 DB 实例的结构体，对其数据结构进行初始化
 	db := &DB{
 		// 注意使用了引用的数据结构都需要 new 或者 make 一个空间
-		option:   options,
-		rwmu:     new(sync.RWMutex),
-		oldFiles: make(map[uint32]*data.DataFile),
-		index:    index.NewIndexer(options.IndexType), //用户自己选择索引类型（Btree ART）
+		option:       options,
+		rwmu:         new(sync.RWMutex),
+		oldFiles:     make(map[uint32]*data.DataFile),
+		index:        index.NewIndexer(options.IndexType, options.DirPath, options.SyncWrites), //用户自己选择索引类型（Btree ART）
+		isNewInitial: isNewInitial,
 	}
 
 	// 首先加载 merge 的数据目录
@@ -58,14 +77,34 @@ func Open(options Options) (*DB, error) {
 		return nil, err
 	}
 
-	//首先从 hint文件中加载索引
-	if err := db.loadIndexFromHintFiles(); err != nil {
-		return nil, err
+	//如果使用的是B+树索引类型，不需要加载索引了
+	if options.IndexType != BPlusTree {
+		//首先从 hint文件中加载索引
+		if err := db.loadIndexFromHintFiles(); err != nil {
+			return nil, err
+		}
+
+		// 然后从数据文件中加载索引的方法
+		if err := db.loadIndexFromDataFiles(); err != nil {
+			return nil, err
+		}
 	}
 
-	// 然后从数据文件中加载索引的方法
-	if err := db.loadIndexFromDataFiles(); err != nil {
-		return nil, err
+	//如果是B+树类型，打开当前事务序列号的文件，取出事务序列号
+	if options.IndexType == BPlusTree {
+		//加载事务序列号
+		if err := db.loadSeqNum(); err != nil {
+			return nil, err
+		}
+
+		//直接将偏移量设置为文件的大小
+		if db.activeFile != nil {
+			size, err := db.activeFile.IOManager.Size()
+			if err != nil {
+				return nil, err
+			}
+			db.activeFile.Offsetnow = size
+		}
 	}
 
 	//加载完成之后，返回DB的结构体实例
@@ -136,6 +175,33 @@ func (db *DB) Close() error {
 	db.rwmu.Lock()
 	defer db.rwmu.Unlock()
 
+	// 关闭索引
+	if err := db.index.Close(); err != nil {
+		return err
+	}
+
+	//B+树拿不到事务的序列号，因此我们需要将事务序列号提前保存起来
+	seqNumFile, err := data.OpenSeqNUmFile(db.option.DirPath)
+	if err != nil {
+		return err
+	}
+	//保存一条关于当前序列号的记录
+	record := &data.LogRecord{
+		Key:   []byte(seqNumKey),
+		Value: []byte(strconv.FormatUint(db.seqNum, 10)), //当前最新的事务序列号(转为成字符串)
+	}
+
+	//直接编码后写入
+	encRecord, _ := data.EncodeLogRecord(record)
+	if err := seqNumFile.Write(encRecord); err != nil {
+		return err
+	}
+
+	//持久化
+	if err := seqNumFile.Sync(); err != nil {
+		return err
+	}
+
 	// 关闭当前活跃文件
 	if err := db.activeFile.Close(); err != nil {
 		return err
@@ -193,6 +259,8 @@ func (db *DB) Fold(f func(key []byte, value []byte) bool) error {
 
 	//拿到迭代器
 	it := db.index.Iterator(false)
+	defer it.Close() //关闭迭代器，因为读写事务之间是互斥的，否则会阻塞
+
 	for it.Rewind(); it.Valid(); it.Next() {
 		v, err := db.getValueByPosition(it.Value())
 		if err != nil {
@@ -501,9 +569,7 @@ func (db *DB) loadIndexFromDataFiles() error {
 						Record: logRecord,
 						Pos:    &logRecordPos,
 					})
-
 				}
-
 			}
 
 			//标记最新的序列号，方便我们每一批事务都从最新的序列号开始
@@ -538,4 +604,34 @@ func checkOptions(options Options) error {
 	}
 
 	return nil
+}
+
+// loadReqNum加载事务序列号
+func (db *DB) loadSeqNum() error {
+	//拿到文件名
+	fileName := filepath.Join(db.option.DirPath, data.SeqNumFileName)
+	if _, err := os.Stat(fileName); os.IsNotExist(err) {
+		return nil
+	}
+
+	//存在的话，打开这个文件
+	seqNumFile, err := data.OpenSeqNUmFile(db.option.DirPath)
+	if err != nil {
+		return err
+	}
+
+	//取出数据
+	record, _, err := seqNumFile.ReadLogRecord(0)
+
+	//解析，拿到最新的事务序列号
+	seqNum, err := strconv.ParseUint(string(record.Value), 10, 64)
+	if err != nil {
+		return err
+	}
+
+	db.seqNum = seqNum
+	//一定存在保存事务序列号文件，设置为true
+	db.seqNumFileExists = true
+
+	return os.Remove(fileName)
 }

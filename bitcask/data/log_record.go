@@ -28,7 +28,6 @@ type LogRecord struct {
 	Key   []byte
 	Value []byte
 	Type  LogRecordType //墓碑值，可用于标记删除
-
 }
 
 // logRecordHeader header 的信息

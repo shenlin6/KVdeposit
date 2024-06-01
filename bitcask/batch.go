@@ -22,7 +22,13 @@ type WriteBatch struct {
 	pendingWrites map[string]*data.LogRecord // 缓存用户写入，暂时不提交，保证并发安全
 }
 
+// NewWriteBatch 初始化原子写实例
 func (db *DB) NewWriteBatch(options WriteBatchOptions) *WriteBatch {
+	//如果是B+树索引类型的话并且事务序列号文件不存在并且不是第一次初始化序列号文件的话，需要禁用 WriteBatch 功能
+	if db.option.IndexType == BPlusTree && !db.seqNumFileExists && !db.isNewInitial {
+		panic("write batch is banned because no file exists")
+	}
+
 	return &WriteBatch{
 		mu:            new(sync.Mutex),
 		db:            db,

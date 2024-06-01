@@ -60,7 +60,7 @@ var DefaultOptions = Options{
 	DataFileSize:       256 * 1024 * 1024, // 256MB
 	SyncWrites:         false,
 	BytesPerSync:       0,
-	IndexType:          BTree,
+	IndexType:          BTree, //默认使用B树，可以根据实际情况调整
 	MMapAtStartup:      true,
 	DataFileMergeRatio: 0.5,
 }

@@ -70,6 +70,11 @@ func (bt *Btree) Delete(key []byte) bool {
 	return oldItem != nil //为空说明我们删除操作无效，反之成功
 }
 
+func (bt *Btree) Close()error{
+	return nil
+}
+
+
 // Btree 索引迭代器
 type btreeIterator struct {
 	curindex int     // 当前遍历到哪个位置了
