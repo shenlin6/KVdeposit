@@ -23,13 +23,20 @@ func NewBtree() *Btree {
 	}
 }
 
-func (bt *Btree) Put(key []byte, pos *data.LogRecordPos) bool {
+func (bt *Btree) Put(key []byte, pos *data.LogRecordPos) *data.LogRecordPos {
 	it := &Item{key: key, pos: pos}
 
 	bt.lock.Lock() //进行存储操作之前加锁
-	bt.tree.ReplaceOrInsert(it)
+
+	oldItem := bt.tree.ReplaceOrInsert(it)
+
 	bt.lock.Unlock() //解锁
-	return true
+
+	if oldItem == nil {
+		return nil
+	}
+
+	return oldItem.(*Item).pos
 }
 
 func (bt *Btree) Get(key []byte) *data.LogRecordPos {
@@ -61,19 +68,23 @@ func (bt *Btree) Iterator(reverse bool) Iterator {
 	return newBtreeIterator(bt.tree, reverse)
 }
 
-func (bt *Btree) Delete(key []byte) bool {
+func (bt *Btree) Delete(key []byte) (*data.LogRecordPos, bool) {
 	it := &Item{key: key}
 	bt.lock.Lock() //进行存储操作之前加锁
 	oldItem := bt.tree.Delete(it)
 	bt.lock.Unlock() //释放
 
-	return oldItem != nil //为空说明我们删除操作无效，反之成功
+	//为空说明我们删除操作无效，反之成功
+	if oldItem == nil {
+		return nil, false
+	}
+
+	return oldItem.(*Item).pos, true
 }
 
-func (bt *Btree) Close()error{
+func (bt *Btree) Close() error {
 	return nil
 }
-
 
 // Btree 索引迭代器
 type btreeIterator struct {

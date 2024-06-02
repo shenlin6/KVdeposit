@@ -21,6 +21,7 @@ const (
 type LogRecordPos struct {
 	Fid    uint32 //文件的id 表示数据存放到了哪一个文件中
 	Offset int64  //偏移量，表示将该数据存放到了文件中哪个位置
+	Size   uint32 //数据在磁盘上的大小
 }
 
 // 写入到数据文件的记录（因为是添加写入，所以可以类似看作日志）
@@ -93,12 +94,14 @@ func EncodeLogRecord(logRecord *LogRecord) ([]byte, int64) {
 // 对索引信息进行编码的方法
 func EncodeLogRecordPos(pos *LogRecordPos) []byte {
 
-	buf := make([]byte, binary.MaxVarintLen32, binary.MaxVarintLen64)
+	buf := make([]byte, binary.MaxVarintLen32*2, binary.MaxVarintLen64)
 	var index = 0
 	//编码文件ID
-	index += binary.PutUvarint(buf[index:], uint64(pos.Fid))
+	index += binary.PutVarint(buf[index:], int64(pos.Fid))
 	//编码偏移量
-	index += binary.PutUvarint(buf[index:], uint64(pos.Offset))
+	index += binary.PutVarint(buf[index:], pos.Offset)
+	//编码数据大小
+	index += binary.PutVarint(buf[index:], int64(pos.Size))
 	return buf[:index]
 }
 
@@ -109,12 +112,16 @@ func DecodeLogRecordPos(buf []byte) *LogRecordPos {
 	fileID, n := binary.Varint(buf[index:])
 	index += n
 
-	offset, _ := binary.Varint(buf[index:])
+	offset, n:= binary.Varint(buf[index:])
+	index += n
+
+	size, _ := binary.Varint(buf[index:])
 
 	// 构造出索引信息并返回
 	return &LogRecordPos{
 		Fid:    uint32(fileID),
 		Offset: offset,
+		Size:   uint32(size),
 	}
 
 }

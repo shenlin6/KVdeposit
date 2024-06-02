@@ -1,9 +1,10 @@
 package utils
 
 import (
-	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // ok
@@ -12,4 +13,11 @@ func TestDirSize(t *testing.T) {
 	dirSize, err := DirSize(dir)
 	assert.Nil(t, err)
 	assert.True(t, dirSize > 0)
+}
+
+// ok
+func TestAvailableDiskSize(t *testing.T) {
+	size, err := AvailableDiskSize()
+	assert.Nil(t, err)
+	assert.True(t, size > 0)
 }

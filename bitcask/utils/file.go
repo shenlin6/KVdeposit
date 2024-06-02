@@ -3,11 +3,14 @@ package utils
 import (
 	"io/fs"
 	"os"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"unsafe"
 )
+
+
 
 // DirSize 获取一个目录的大小
 func DirSize(dirPath string) (int64, error) {
@@ -31,22 +34,22 @@ var (
 
 // AvailableDiskSize 获取当前目录下的磁盘剩余可用空间大小
 func AvailableDiskSize() (uint64, error) {
-	wd, err := os.Getwd()
+	// 获取当前目录的绝对路径
+	absPath, err := filepath.Abs(".")
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to get absolute path: %v", err)
 	}
 
-	// 获取当前目录所在的驱动器路径
-	drive := wd[:1]
+	// 获取当前目录所在的磁盘驱动器路径
+	drive := filepath.VolumeName(absPath)
 
 	// 准备参数
 	lpFreeBytesAvailableToCaller := int64(0)
 	lpTotalNumberOfBytes := int64(0)
 	lpTotalNumberOfFreeBytes := int64(0)
 	lpDirectoryName, err := syscall.UTF16PtrFromString(drive)
-
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to convert drive string to UTF16: %v", err)
 	}
 
 	// 调用 Windows API 函数 GetDiskFreeSpaceEx
@@ -55,9 +58,8 @@ func AvailableDiskSize() (uint64, error) {
 		uintptr(unsafe.Pointer(&lpFreeBytesAvailableToCaller)),
 		uintptr(unsafe.Pointer(&lpTotalNumberOfBytes)),
 		uintptr(unsafe.Pointer(&lpTotalNumberOfFreeBytes)))
-
 	if r == 0 {
-		return 0, err
+		return 0, fmt.Errorf("GetDiskFreeSpaceEx failed: %v", err)
 	}
 
 	// 返回剩余可用空间大小

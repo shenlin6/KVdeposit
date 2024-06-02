@@ -21,7 +21,7 @@ type Options struct {
 	// 启动时是否使用 MMap 加载数据
 	MMapAtStartup bool
 
-	//	数据文件合并的阈值
+	//	数据文件合并的阈值(Merge操作)
 	DataFileMergeRatio float32
 }
 
@@ -62,7 +62,7 @@ var DefaultOptions = Options{
 	BytesPerSync:       0,
 	IndexType:          BTree, //默认使用B树，可以根据实际情况调整
 	MMapAtStartup:      true,
-	DataFileMergeRatio: 0.5,
+	DataFileMergeRatio: 0.5,    //无效数据占总数据的一半就merge
 }
 
 // DefaultIteratorOptions 默认的索引迭代器的配置

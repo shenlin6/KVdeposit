@@ -760,10 +760,6 @@ ART树的论文： https://db.in.tum.de/~leis/papers/ART.pdf
 
 
 
-
-
-
-
 ## 2. bitcask内存索引的优缺点
 
 根据 **bitcask** 的论文我们可以得知：bitcask存储模型最大的特点是所有的索引都**只能在内存中维护**。这样的特性带来了一个很大的好处，那就是只需要从内存中就能够直接获取到数据的索引信息，然后只通过一次磁盘IO操作就可以拿到数据了，但这种方式同样有**缺陷**。如果我们**内存不够**，那么数据库能存储的key+索引的数据量将**受到限制**。
@@ -984,6 +980,106 @@ func (db *DB) resetIOType() error {
 
 
 
+# 优化Merge操作
+
+## 1. 解决低效遍历问题
+
+如果说在我们的储存器中，用户存储的**数据量已经很大**了，但是用户删除的数据量（**无效数据量）相对较少**。在这种情况下，如果我们让用户指定一段时间后进行一次merge操作，那么很可能用户的数据文件中**根本没有或者只有很少的无效数据**需要被Merge清理掉。但我们还是对整个数据文件进行Merge遍历操作，就让**效率非常低**。
+
+因此，我们需要为用户提供一个配置项，让用户来决定，当数据文件中的无效数据达到多少数据量的时候，再来进行Merge清楚操作。这样就可以避免程序做很多无用功。
+
+我们可以在内存索引中维护一个值，记录每条数据**在磁盘上的大小**，Delete数据的时候，可以得到旧的值，这个旧的值就是磁盘上**失效的数据。**Put 存数据的时候，如果判断到有旧的数据存在，那么也同样**累加**这个值，这样我们就能够从Put/Delete 数据的流程中，得到**失效数据的累计值。**
+
+### 细节处理：
+
+1. 我们在删除的时候，向数据文件中追加写入了一条标记删除的值（**墓碑值**），而这条数据在**merge之后**其实是**没有意义**的，因此我们**也应该将它删除**。
+
+```
+// 写入数据文件中
+  pos, err := db.appendLogRecordWithLock(logRecord)
+  if err != nil {
+​    return nil
+  }
+  //将删除这个标记也标记为删除
+  db.reclaimSize += int64(pos.Size)
+```
+
+2. 如果目前的**无效数据量**，还**没达到**用户所设置的**阈值**，那么直接返回错误，不进行merge操作
+
+   在 merge.go 中
+
+   ```
+   //查看当前无效数据是否达到用户设置的merge ratio 阈值
+     totalSize, err := utils.DirSize(db.option.DirPath)
+     
+     if err != nil {
+   ​    //注意，要解锁
+   ​    db.rwmu.Unlock()
+     }
+     //算出比例,如果还没达到用户设置的阈值就直接返回
+     if float32(db.reclaimSize)/float32(totalSize) < db.option.DataFileMergeRatio {
+   ​    db.rwmu.Unlock()
+   ​    return ErrUnderMergeRatio
+     }
+   ```
+
+   ## 防止Merge导致的内存溢出
+
+ 我们在Merge操作的时候，会将目前有效的数据文件写入一个临时目录。如果我们的无效数据很少，那么此时磁盘上的数据就接近于原来磁盘数据空间的两倍，有可能会导致磁盘空间不够的情况。
+
+为了避免这种情况，我们应该在Merge之前就**提前算出**，在我们将现有数据放入临时目录之后，**占用磁盘空间的总和**，如果不**超过磁盘空间我们才进行Merge操作**，否则返回错误。我们直接采用GitHub上别人获取当前目录下的磁盘剩余可用空间大小的代码。
+
+在 merge.go 中：
+
+```
+//查看剩余空间容量是否可以装下Merge后的数据量
+  availableDiskSize, err := utils.AvailableDiskSize()
+
+  if err != nil {
+
+​    db.rwmu.Unlock()
+
+​    return err
+  }
+  //如果超过了磁盘的容量直接返回错误
+  if uint64(totalSize-db.reclaimSize) >= availableDiskSize {
+
+​    db.rwmu.Unlock()
+
+​    return ErrNotEnoughSpaceToMerge
+  }
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # 写项目中遇到的较大的困难/BUG
 
 1.
@@ -1008,7 +1104,7 @@ func NewBPlusTree(dirPath string, syncWrites bool) *BPlusTree {
   options.NoSync = !syncWrites //取反操作，保持一致
 ```
 
-
+3. 启动优化。我在看一篇关于开机启动的论文的时候，了解到当**数据库启动**的时候，短时间**数据量的加载是很大**的，通常开发者都会**对启动数据库做一些优化**。通常采用的是**MMap**。但是我不太了解MMap的应用场景，因此看了几篇论文，问了学长几个问题，最终还是决定使用mmap对数据库的启动做一些优化。当我想提供一个**配置项**，让用户来决定使用**golang标准的IO模式**还是使用**MMap的IO模式**的时候，我发现如果重新写MMap的配置项，几乎要全部重新架构一遍，但我只对数据库启动做些优化。因此对于MMap中**除了Read之外的方法**，我都没有使用，这样也**避免了重写很多不必要的代码**。
 
 
 

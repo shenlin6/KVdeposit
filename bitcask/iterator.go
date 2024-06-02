@@ -15,9 +15,9 @@ type Iterator struct {
 
 // 初始化面向用户的 Iterator 结构体的方法（属于DB这个结构体，因为用户需要实际对数据进行操作）
 func (db *DB) NewIterator(ops IteratorOptions) *Iterator {
-	indexit := db.index.Iterator(ops.Reverse)
+	indexIterator := db.index.Iterator(ops.Reverse)
 	return &Iterator{
-		indexIterator: indexit,
+		indexIterator: indexIterator,
 		db:            db,
 		options:       ops,
 	}
@@ -92,6 +92,5 @@ func (it *Iterator) skipOne() {
 		if prefixLen <= len(key) && bytes.Compare(it.options.Prefix, key[:prefixLen]) == 0 {
 			break
 		}
-
 	}
 }

@@ -15,4 +15,7 @@ var (
 	ErrExceedMaxBatchNum      = errors.New("exceed the max num of batch")
 	ErrIsMergeNow             = errors.New("merge is in the process")
 	ErrFilelockIsInUse        = errors.New("filelock is in use")
+	ErrInvalidMergeRatio      = errors.New("invalid merge ratio")
+	ErrUnderMergeRatio        = errors.New("the merge ratio now is under the merge ratio you set")
+	ErrNotEnoughSpaceToMerge  = errors.New("no enough space to merge")
 )

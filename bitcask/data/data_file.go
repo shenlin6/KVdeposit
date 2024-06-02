@@ -89,7 +89,7 @@ func (df *DataFile) ReadLogRecord(offset int64) (*LogRecord, int64, error) {
 
 	var headerBytes int64 = maxLogRecordHeaderSize //(15)
 	//如果当前的偏移量+15字节超过当前文件的大小，我们读取到文件末尾即可，否则会造成io.EOF错误
-	if offset+headerBytes > fileSize {
+	if offset+maxLogRecordHeaderSize > fileSize {
 		headerBytes = fileSize - offset
 	}
 

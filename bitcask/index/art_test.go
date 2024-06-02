@@ -38,15 +38,18 @@ func TestAdaptiveRadixTree_Get(t *testing.T) {
 func TestAdaptiveRadixTree_Delete(t *testing.T) {
 	art := NewART()
 
-	res1 := art.Delete([]byte("not exist"))
-	t.Log(res1)
+	res1, ok1 := art.Delete([]byte("not exist"))
+	assert.Nil(t, res1)
+	assert.False(t, ok1)
 
 	art.Put([]byte("key-1"), &data.LogRecordPos{Fid: 1, Offset: 12})
-	res2 := art.Delete([]byte("key-1"))
-	t.Log(res2)
+	res2, ok2 := art.Delete([]byte("key-1"))
+	assert.True(t, ok2)
+	assert.Equal(t, uint32(1), res2.Fid)
+	assert.Equal(t, int64(12), res2.Offset)
+
 	pos := art.Get([]byte("key-1"))
-	t.Log(pos)
-	
+	assert.Nil(t, pos)
 }
 
 // ok

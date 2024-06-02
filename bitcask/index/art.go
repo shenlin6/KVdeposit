@@ -26,12 +26,19 @@ func NewART() *AdaptiveRadixTree {
 }
 
 // Put 向索引中存储 key 对应数据的位置
-func (art *AdaptiveRadixTree) Put(key []byte, pos *data.LogRecordPos) bool {
+func (art *AdaptiveRadixTree) Put(key []byte, pos *data.LogRecordPos) *data.LogRecordPos {
 	//直接调用art的方法
 	art.lock.Lock()
-	art.tree.Insert(key, pos)
+
+	oldValue, _ := art.tree.Insert(key, pos)
+
 	art.lock.Unlock()
-	return true
+
+	if oldValue == nil {
+		return nil
+	}
+
+	return oldValue.(*data.LogRecordPos)
 }
 
 // Get 根据 key 取出对应索引的位置信息
@@ -50,13 +57,19 @@ func (art *AdaptiveRadixTree) Get(key []byte) *data.LogRecordPos {
 }
 
 // Delete 根据 key 删除对应索引的位置信息
-func (art *AdaptiveRadixTree) Delete(key []byte) bool {
-	art.lock.RLock()
-	_, deleted := art.tree.Delete(key)
-	art.lock.RUnlock()
+func (art *AdaptiveRadixTree) Delete(key []byte) (*data.LogRecordPos, bool) {
+	art.lock.Lock()
 
-	//返回是否被删除
-	return deleted
+	oldValue, deleted := art.tree.Delete(key)
+
+	art.lock.Unlock()
+
+	if oldValue == nil {
+		return nil, false
+	}
+
+	//返回旧数据和是否被删除
+	return oldValue.(*data.LogRecordPos), deleted
 }
 
 // Size 返回索引中的数据量（Key值）

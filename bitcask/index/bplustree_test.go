@@ -13,19 +13,21 @@ import (
 func TestBPlusTree_Put(t *testing.T) {
 	path := filepath.Join(os.TempDir(), "bptree-put")
 	_ = os.MkdirAll(path, os.ModePerm)
-
 	defer func() {
 		_ = os.RemoveAll(path)
 	}()
-
 	tree := NewBPlusTree(path, false)
 
-	tree.Put([]byte("aac"), &data.LogRecordPos{Fid: 111, Offset: 666})
+	res1 := tree.Put([]byte("aac"), &data.LogRecordPos{Fid: 123, Offset: 999})
+	assert.Nil(t, res1)
+	res2 := tree.Put([]byte("abc"), &data.LogRecordPos{Fid: 123, Offset: 999})
+	assert.Nil(t, res2)
+	res3 := tree.Put([]byte("acc"), &data.LogRecordPos{Fid: 123, Offset: 999})
+	assert.Nil(t, res3)
 
-	tree.Put([]byte("abc"), &data.LogRecordPos{Fid: 222, Offset: 666})
-
-	tree.Put([]byte("acc"), &data.LogRecordPos{Fid: 333, Offset: 666})
-
+	res4 := tree.Put([]byte("acc"), &data.LogRecordPos{Fid: 7744, Offset: 883})
+	assert.Equal(t, uint32(123), res4.Fid)
+	assert.Equal(t, int64(999), res4.Offset)
 }
 
 // ok
@@ -59,17 +61,18 @@ func TestBPlusTree_Delete(t *testing.T) {
 	}()
 	tree := NewBPlusTree(path, false)
 
-	res1 := tree.Delete([]byte("not exist"))
-	t.Log(res1)
+	res1, ok1 := tree.Delete([]byte("not exist"))
+	assert.False(t, ok1)
+	assert.Nil(t, res1)
 
 	tree.Put([]byte("aac"), &data.LogRecordPos{Fid: 123, Offset: 999})
-	pos1 := tree.Delete([]byte("aac"))
-	assert.NotNil(t, pos1)
+	res2, ok2 := tree.Delete([]byte("aac"))
+	assert.True(t, ok2)
+	assert.Equal(t, uint32(123), res2.Fid)
+	assert.Equal(t, int64(999), res2.Offset)
 
-	tree.Put([]byte("aac"), &data.LogRecordPos{Fid: 456, Offset: 3212})
-	pos2 := tree.Delete([]byte("aac"))
-	assert.NotNil(t, pos2)
-
+	pos1 := tree.Get([]byte("aac"))
+	assert.Nil(t, pos1)
 }
 
 // ok

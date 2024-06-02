@@ -9,6 +9,7 @@ import (
 	"strconv"
 
 	"bitcask.go/data"
+	"bitcask.go/utils"
 )
 
 const (
@@ -27,6 +28,33 @@ func (db *DB) Merge() error {
 		db.rwmu.Unlock()
 		return ErrIsMergeNow
 	}
+
+	//查看当前无效数据是否达到用户设置的merge ratio 阈值
+	totalSize, err := utils.DirSize(db.option.DirPath)
+	if err != nil {
+		//注意，要解锁
+		db.rwmu.Unlock()
+		return err
+	}
+
+	//算出比例,如果还没达到用户设置的阈值就直接返回
+	if float32(db.reclaimSize)/float32(totalSize) < db.option.DataFileMergeRatio {
+		db.rwmu.Unlock()
+		return ErrUnderMergeRatio
+	}
+
+	//查看剩余空间容量是否可以装下Merge后的数据量
+	availableDiskSize, err := utils.AvailableDiskSize()
+	if err != nil {
+		db.rwmu.Unlock()
+		return err
+	}
+	//如果超过了磁盘的容量直接返回错误
+	if uint64(totalSize-db.reclaimSize) >= availableDiskSize {
+		db.rwmu.Unlock()
+		return ErrNotEnoughSpaceToMerge
+	}
+
 	//如果没有在Merge,我们开始进行Merge操作
 	db.isMerging = true
 	defer func() {
@@ -204,6 +232,10 @@ func (db *DB) loadMergeFiles() error {
 		}
 		//如果遍历到了事务序列号的文件，直接跳过
 		if entry.Name() == data.SeqNumFileName {
+			continue
+		}
+		// 如果是文件锁的目录就直接跳过
+		if entry.Name() == fileLockName {
 			continue
 		}
 
