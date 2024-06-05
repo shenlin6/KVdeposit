@@ -3,14 +3,10 @@ package utils
 import (
 	"io/fs"
 	"os"
-	"fmt"
 	"path/filepath"
 	"strings"
 	"syscall"
-	"unsafe"
 )
-
-
 
 // DirSize 获取一个目录的大小
 func DirSize(dirPath string) (int64, error) {
@@ -27,47 +23,21 @@ func DirSize(dirPath string) (int64, error) {
 	return size, err
 }
 
-var (
-	modkernel32            = syscall.NewLazyDLL("kernel32.dll")
-	procGetDiskFreeSpaceEx = modkernel32.NewProc("GetDiskFreeSpaceExW")
-)
-
-// AvailableDiskSize 获取当前目录下的磁盘剩余可用空间大小
+// AvailableDiskSize 获取磁盘剩余可用空间大小
 func AvailableDiskSize() (uint64, error) {
-	// 获取当前目录的绝对路径
-	absPath, err := filepath.Abs(".")
+	wd, err := syscall.Getwd()
 	if err != nil {
-		return 0, fmt.Errorf("failed to get absolute path: %v", err)
+		return 0, err
 	}
-
-	// 获取当前目录所在的磁盘驱动器路径
-	drive := filepath.VolumeName(absPath)
-
-	// 准备参数
-	lpFreeBytesAvailableToCaller := int64(0)
-	lpTotalNumberOfBytes := int64(0)
-	lpTotalNumberOfFreeBytes := int64(0)
-	lpDirectoryName, err := syscall.UTF16PtrFromString(drive)
-	if err != nil {
-		return 0, fmt.Errorf("failed to convert drive string to UTF16: %v", err)
+	var stat syscall.Statfs_t
+	if err = syscall.Statfs(wd, &stat); err != nil {
+		return 0, err
 	}
-
-	// 调用 Windows API 函数 GetDiskFreeSpaceEx
-	r, _, err := procGetDiskFreeSpaceEx.Call(
-		uintptr(unsafe.Pointer(lpDirectoryName)),
-		uintptr(unsafe.Pointer(&lpFreeBytesAvailableToCaller)),
-		uintptr(unsafe.Pointer(&lpTotalNumberOfBytes)),
-		uintptr(unsafe.Pointer(&lpTotalNumberOfFreeBytes)))
-	if r == 0 {
-		return 0, fmt.Errorf("GetDiskFreeSpaceEx failed: %v", err)
-	}
-
-	// 返回剩余可用空间大小
-	return uint64(lpFreeBytesAvailableToCaller), nil
+	return stat.Bavail * uint64(stat.Bsize), nil
 }
 
 // CopyDir 拷贝数据目录
-func CopyDir(src, dest string, exclude []string) error {
+func CopyDir(src, dest string, exclude []string) error { //原路径 目标路径 被排除的路径
 	// 目标目标不存在则创建
 	if _, err := os.Stat(dest); os.IsNotExist(err) {
 		if err := os.MkdirAll(dest, os.ModePerm); err != nil {
@@ -75,12 +45,14 @@ func CopyDir(src, dest string, exclude []string) error {
 		}
 	}
 
+	//循环遍历整个源路径及其子目录中的所有文件和子目录，将所有的文件名称取出
 	return filepath.Walk(src, func(path string, info fs.FileInfo, err error) error {
 		fileName := strings.Replace(path, src, "", 1)
 		if fileName == "" {
 			return nil
 		}
 
+		//看文件是否在排除的列表文件中，是则跳过
 		for _, e := range exclude {
 			matched, err := filepath.Match(e, info.Name())
 			if err != nil {
@@ -91,14 +63,17 @@ func CopyDir(src, dest string, exclude []string) error {
 			}
 		}
 
+		//判断是否是一个目录
 		if info.IsDir() {
 			return os.MkdirAll(filepath.Join(dest, fileName), info.Mode())
 		}
 
+		//将源文件信息读取出来
 		data, err := os.ReadFile(filepath.Join(src, fileName))
 		if err != nil {
 			return err
 		}
+		//写入目标文件当中
 		return os.WriteFile(filepath.Join(dest, fileName), data, info.Mode())
 	})
 }

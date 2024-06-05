@@ -14,56 +14,86 @@ func destroyFile(name string) {
 	}
 }
 
-func TestNewFileIDManager(t *testing.T) {
-	fid, err := NewFileIOManager(filepath.Join("example", "dataA"))
+// ok
+func TestNewFileIOManager(t *testing.T) {
+	path := filepath.Join("/tmp", "a.data")
+	fio, err := NewFileIOManager(path)
+	defer destroyFile(path)
+
 	assert.Nil(t, err)
-	assert.NotNil(t, fid)
+	assert.NotNil(t, fio)
 }
 
+// ok
 func TestFileIO_Write(t *testing.T) {
-
-	path := filepath.Join("C:\\tmp", "dataA")
+	path := filepath.Join("/tmp", "a.data")
 	fio, err := NewFileIOManager(path)
 	defer destroyFile(path)
 
 	assert.Nil(t, err)
 	assert.NotNil(t, fio)
 
-	// case nil
 	n, err := fio.Write([]byte(""))
 	assert.Equal(t, 0, n)
 	assert.Nil(t, err)
-	// case 带有空格
-	n, err = fio.Write([]byte("golang gogogo"))
+
+	n, err = fio.Write([]byte("bitcask kv"))
 	assert.Equal(t, 10, n)
 	assert.Nil(t, err)
-	// case 无空格
-	n, err = fio.Write([]byte("shone"))
+
+	n, err = fio.Write([]byte("storage"))
 	assert.Equal(t, 7, n)
 	assert.Nil(t, err)
 }
 
+// ok
 func TestFileIO_Read(t *testing.T) {
-	path := filepath.Join("/tmp", "dataA")
+	path := filepath.Join("/tmp", "a.data")
 	fio, err := NewFileIOManager(path)
 	defer destroyFile(path)
 
 	assert.Nil(t, err)
 	assert.NotNil(t, fio)
 
-	_, err = fio.Write([]byte("key1"))
+	_, err = fio.Write([]byte("key-a"))
 	assert.Nil(t, err)
 
-	_, err = fio.Write([]byte("key2"))
+	_, err = fio.Write([]byte("key-b"))
 	assert.Nil(t, err)
 
-	b1 := make([]byte, 10)
+	b1 := make([]byte, 5)
 	n, err := fio.Read(b1, 0)
-	assert.Equal(t, 10, n)
-	assert.Equal(t, []byte("key1"), b1)
+	assert.Equal(t, 5, n)
+	assert.Equal(t, []byte("key-a"), b1)
 
 	b2 := make([]byte, 5)
 	n, err = fio.Read(b2, 5)
 	assert.Equal(t, 5, n)
-	assert.Equal(t, []byte("key2"), b2)
+	assert.Equal(t, []byte("key-b"), b2)
+}
+
+// ok
+func TestFileIO_Sync(t *testing.T) {
+	path := filepath.Join("/tmp", "a.data")
+	fio, err := NewFileIOManager(path)
+	defer destroyFile(path)
+
+	assert.Nil(t, err)
+	assert.NotNil(t, fio)
+
+	err = fio.Sync()
+	assert.Nil(t, err)
+}
+
+// ok
+func TestFileIO_Close(t *testing.T) {
+	path := filepath.Join("/tmp", "a.data")
+	fio, err := NewFileIOManager(path)
+	defer destroyFile(path)
+
+	assert.Nil(t, err)
+	assert.NotNil(t, fio)
+
+	err = fio.Close()
+	assert.Nil(t, err)
 }

@@ -8,8 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// ok
 func TestMMap_Read(t *testing.T) {
-	path := filepath.Join("C:\\tmp", "mmap-a.data")
+	path := filepath.Join("/tmp", "mmap-a.data")
 	defer destroyFile(path)
 
 	mmapIO, err := NewMMapIOManager(path)

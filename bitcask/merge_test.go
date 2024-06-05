@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// 没有任何数据的情况下进行 merge
+// ok
 func TestDB_Merge(t *testing.T) {
+	// 没有任何数据的情况下进行 merge
 	opts := DefaultOptions
 	dir, _ := os.MkdirTemp("", "bitcask-go-merge-1")
 	opts.DirPath = dir
@@ -23,8 +24,8 @@ func TestDB_Merge(t *testing.T) {
 	assert.Nil(t, err)
 }
 
-// 全部都是有效的数据
 func TestDB_Merge2(t *testing.T) {
+	// 全部都是有效的数据
 	opts := DefaultOptions
 	dir, _ := os.MkdirTemp("", "bitcask-go-merge-2")
 	opts.DataFileSize = 32 * 1024 * 1024
@@ -62,8 +63,9 @@ func TestDB_Merge2(t *testing.T) {
 	}
 }
 
-// 有失效的数据，和被重复 Put 的数据
+
 func TestDB_Merge3(t *testing.T) {
+	// 有失效的数据，和被重复 Put 的数据
 	opts := DefaultOptions
 	dir, _ := os.MkdirTemp("", "bitcask-go-merge-3")
 	opts.DataFileSize = 32 * 1024 * 1024

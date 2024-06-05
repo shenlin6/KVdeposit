@@ -46,6 +46,14 @@ type Stat struct {
 	DiskSize    int64 //数据目录所占磁盘空间的大小
 }
 
+// BackUp 拷贝数据库的方法(dir 用户传递过来的需要拷贝的目标目录)
+func (db *DB) BackUp(dir string) error {
+	db.rwmu.RLock()
+	defer db.rwmu.RUnlock()
+
+	return utils.CopyDir(db.option.DirPath, dir, []string{fileLockName})
+}
+
 // Open 打开 bitcask 储存引擎的实例
 func Open(options Options) (*DB, error) {
 	//对用户传入的配置项进行校验，避免破坏数据库内部操作
@@ -119,14 +127,6 @@ func Open(options Options) (*DB, error) {
 		if err := db.loadIndexFromDataFiles(); err != nil {
 			return nil, err
 		}
-
-		//重置 IO 类型为标准IO类型
-		if db.option.MMapAtStartup { //只用作启动加速
-			if err := db.resetIOType(); err != nil {
-				return nil, err
-			}
-		}
-
 	}
 
 	//如果是B+树类型，打开当前事务序列号的文件，取出事务序列号
@@ -143,6 +143,13 @@ func Open(options Options) (*DB, error) {
 				return nil, err
 			}
 			db.activeFile.Offsetnow = size
+		}
+	}
+
+	//重置 IO 类型为标准IO类型
+	if db.option.MMapAtStartup { //只用作启动加速
+		if err := db.resetIOType(); err != nil {
+			return nil, err
 		}
 	}
 
@@ -464,7 +471,6 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 	if !isNeedSync && db.option.BytesPerSync > 0 && db.bytesWrite >= db.option.BytesPerSync {
 		//走到这里代表达到需要持久化的阈值了
 		isNeedSync = true
-
 	}
 
 	if isNeedSync {
@@ -481,6 +487,7 @@ func (db *DB) appendLogRecord(logRecord *data.LogRecord) (*data.LogRecordPos, er
 	pos := &data.LogRecordPos{
 		Fid:    db.activeFile.FileID,
 		Offset: writeOff,
+		Size:   uint32(size),
 	}
 	return pos, nil
 }

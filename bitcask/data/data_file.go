@@ -112,15 +112,11 @@ func (df *DataFile) ReadLogRecord(offset int64) (*LogRecord, int64, error) {
 		return nil, 0, io.EOF
 	}
 
-	// 取出对应 key 和 value 的长度
-	var logRecordSize int64
-
-	// 实例化一个 logRecord 的结构体，方便返回
-	var logRecord = &LogRecord{Type: header.recordType}
-
 	keySize, valueSize := int64(header.keySize), int64(header.valueSize)
 	//记录整个logRecord的长度 = header 的长度 + keySize + valueSize
-	logRecordSize = headerSize + int64(keySize) + int64(valueSize)
+	var recordSize = headerSize + keySize + valueSize
+
+	logRecord := &LogRecord{Type: header.recordType}
 
 	// 根据 keySize 和 valueSize 读取用户实际读取的 key 和 value
 	// 如果 size 确实大于 0 就读取出来
@@ -146,7 +142,7 @@ func (df *DataFile) ReadLogRecord(offset int64) (*LogRecord, int64, error) {
 	}
 
 	//检验通过表示读取到的数据是有效的，进行返回
-	return logRecord, logRecordSize, nil
+	return logRecord, recordSize, nil
 }
 
 // 其他的方法，比如: 在数据文件中写入数据，Sync Close 等方法，直接调用 IOMAnager 就可以了

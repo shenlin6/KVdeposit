@@ -23,6 +23,7 @@ func TestDB_NewIterator(t *testing.T) {
 	assert.Equal(t, false, iterator.Valid())
 }
 
+// ok
 func TestDB_Iterator_One_Value(t *testing.T) {
 	opts := DefaultOptions
 	dir, _ := os.MkdirTemp("", "bitcask-go-iterator-2")
