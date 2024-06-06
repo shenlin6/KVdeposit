@@ -37,8 +37,15 @@ func NewRedisDataStructureType(options bitcask.Options) (*RedisDataStructureType
 	return &RedisDataStructureType{
 		db: db,
 	}, nil
-
 }
+
+
+// 关闭数据库
+func(r *RedisDataStructureType)Close()error{
+	return r.db.Close()
+}
+
+
 
 /////// string
 
@@ -210,6 +217,7 @@ func (r *RedisDataStructureType) HDelete(key, field []byte) (bool, error) {
 		}
 	}
 
+	// 返回是否删除成功
 	return exist, nil
 }
 

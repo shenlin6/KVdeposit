@@ -100,7 +100,7 @@ func TestDB_WriteBatch3(t *testing.T) {
 
 	keys := db.ListKeys()
 	t.Log(len(keys))
-	
+
 	wbOpts := DefaultWriteBatchOptions
 	wbOpts.MaxBatchNum = 10000000
 	wb := db.NewWriteBatch(wbOpts)
